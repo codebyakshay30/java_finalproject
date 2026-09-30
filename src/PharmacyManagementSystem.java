@@ -2,47 +2,34 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.io.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Scanner;
 
-/**
- * Case Study 193: Pharmacy Billing & Stock Management System (Swing GUI)
- *
- * Concepts demonstrated:
- *  - Arrays      : names[], prices[], stock[] (parallel arrays), cart arrays, history arrays
- *  - Scanner     : parses the "Quick Add" text (e.g. 1:5, 2:3, 3:4) in billing
- *  - Operators   : arithmetic (bill total, stock), relational, logical
- *  - if-else     : stock validation, input validation
- *  - switch      : sidebar navigation (navigate method)
- *  - Loops       : displaying, billing, searching, updating stock
- *  - Methods     : registration, billing, validation, stock update, search
- *  - Searching   : linear search by ID and by name
- */
+/** Pharmacy Billing & Stock Management System (Swing GUI) - data is saved to pharmacy_data.txt */
 public class PharmacyManagementSystem {
 
-    // ---------- Medicine data (parallel arrays) ----------
-    static final int MAX = 100;
+    // ---------- Data (parallel arrays) ----------
+    static final int MAX = 100, MAX_BILLS = 500, LOW_STOCK_LIMIT = 10;
+    static final String DATA_FILE = "pharmacy_data.txt";
+
     static String[] names = new String[MAX];
     static double[] prices = new double[MAX];
     static int[] stock = new int[MAX];
     static int count = 0;
-    static final int LOW_STOCK_LIMIT = 10;   // stock <= this => needs restocking
 
-    // ---------- Current bill / cart ----------
     static int[] cartIdx = new int[MAX];
     static int[] cartQty = new int[MAX];
     static int cartCount = 0;
 
-    // ---------- Transaction history ----------
-    static final int MAX_BILLS = 500;
     static String[] histDate = new String[MAX_BILLS];
     static String[] histCustomer = new String[MAX_BILLS];
     static String[] histItems = new String[MAX_BILLS];
     static double[] histTotal = new double[MAX_BILLS];
     static int histCount = 0;
 
-    // ---------- GUI components ----------
+    // ---------- GUI ----------
     static final Color NAVY = new Color(22, 40, 84);
     static final Color TEAL = new Color(0, 150, 136);
     static final Color RED = new Color(198, 40, 40);
@@ -64,17 +51,61 @@ public class PharmacyManagementSystem {
     static JTextArea historyArea;
     static JTable cartTable, restockTable;
 
-    // ================= MAIN =================
     public static void main(String[] args) {
-        preloadMedicines();
+        if (!loadData()) {
+            preloadMedicines();
+            saveData();
+        }
         SwingUtilities.invokeLater(PharmacyManagementSystem::buildGui);
     }
 
-    // ================= Module: Medicine Registration =================
+    // ================= File storage =================
+    static String clean(String s) {
+        return s.replace("\t", " ").replace("\n", " ").replace("\r", " ");
+    }
+
+    static void saveData() {
+        try (PrintWriter out = new PrintWriter(new FileWriter(DATA_FILE))) {
+            for (int i = 0; i < count; i++) {
+                out.println("M\t" + clean(names[i]) + "\t" + prices[i] + "\t" + stock[i]);
+            }
+            for (int i = 0; i < histCount; i++) {
+                out.println("H\t" + histDate[i] + "\t" + clean(histCustomer[i]) + "\t" + clean(histItems[i]) + "\t" + histTotal[i]);
+            }
+        } catch (IOException e) {
+            error("Could not save data: " + e.getMessage());
+        }
+    }
+
+    static boolean loadData() {
+        File f = new File(DATA_FILE);
+        if (!f.exists()) {
+            return false;
+        }
+        try (Scanner sc = new Scanner(f)) {
+            while (sc.hasNextLine()) {
+                String[] p = sc.nextLine().split("\t");
+                if (p[0].equals("M") && p.length == 4 && count < MAX) {
+                    addMedicine(p[1], Double.parseDouble(p[2]), Integer.parseInt(p[3]));
+                } else if (p[0].equals("H") && p.length == 5 && histCount < MAX_BILLS) {
+                    histDate[histCount] = p[1];
+                    histCustomer[histCount] = p[2];
+                    histItems[histCount] = p[3];
+                    histTotal[histCount] = Double.parseDouble(p[4]);
+                    histCount++;
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("Could not read data file: " + e.getMessage());
+        }
+        return count > 0;
+    }
+
+    // ================= Medicine registration =================
     static void preloadMedicines() {
         addMedicine("Paracetamol", 20.00, 50);
         addMedicine("Amoxicillin", 85.50, 30);
-        addMedicine("Cetirizine", 12.00, 8);    // low on purpose, to show the restock alert
+        addMedicine("Cetirizine", 12.00, 8);
         addMedicine("Ibuprofen", 45.00, 40);
     }
 
@@ -120,10 +151,10 @@ public class PharmacyManagementSystem {
         regPrice.setText("");
         regQty.setText("");
         refreshAll();
+        saveData();
     }
 
-    // ================= Module: Medicine Selection + Billing =================
-    // Returns an error message, or null if the stock is fine (Module: Stock Validation)
+    // ================= Billing =================
     static String checkStock(int idx, int qty, int alreadyInCart) {
         int available = stock[idx] - alreadyInCart;
         if (stock[idx] == 0) {
@@ -150,8 +181,7 @@ public class PharmacyManagementSystem {
         refreshCart();
     }
 
-    // Quick add: "1:5, 2:3, 3:4" -> Product 1 x5, Product 2 x3, Product 3 x4
-    // A Scanner reads the numbers one by one.
+    // Quick add: "1:5, 2:3, 3:4" -> ProductID:Quantity pairs, read with a Scanner
     static void quickAdd() {
         String text = quickField.getText().trim();
         if (text.isEmpty()) {
@@ -195,7 +225,7 @@ public class PharmacyManagementSystem {
     static void addToCart(int idx, int qty) {
         int pos = positionInCart(idx);
         if (pos != -1) {
-            cartQty[pos] += qty;              // same medicine again -> merge
+            cartQty[pos] += qty;
         } else {
             cartIdx[cartCount] = idx;
             cartQty[cartCount] = qty;
@@ -269,12 +299,12 @@ public class PharmacyManagementSystem {
         JTextArea area = new JTextArea(buildBillText(customer, dateTime, total) + "\n\nConfirm sale and update stock?");
         area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         area.setEditable(false);
-        int ok = JOptionPane.showConfirmDialog(frame, area, "Bill Preview",
-                JOptionPane.YES_NO_OPTION, JOptionPane.PLAIN_MESSAGE);
+        int ok = JOptionPane.showConfirmDialog(frame, area, "Bill Preview", JOptionPane.YES_NO_OPTION, JOptionPane.PLAIN_MESSAGE);
 
         if (ok == JOptionPane.YES_OPTION) {
             String alerts = updateStock();
             recordTransaction(dateTime, customer, buildSummary(), total);
+            saveData();
             cartCount = 0;
             custField.setText("");
             refreshCart();
@@ -302,7 +332,7 @@ public class PharmacyManagementSystem {
         return sb.toString();
     }
 
-    // ================= Module: Stock Update =================
+    // ================= Stock update =================
     static String updateStock() {
         String alerts = "";
         for (int i = 0; i < cartCount; i++) {
@@ -324,7 +354,7 @@ public class PharmacyManagementSystem {
         int idx = Integer.parseInt(restockModel.getValueAt(row, 0).toString()) - 1;
         String input = JOptionPane.showInputDialog(frame, "Quantity to add for " + names[idx] + ":");
         if (input == null) {
-            return;                            // user pressed Cancel
+            return;
         }
         try {
             int qty = Integer.parseInt(input.trim());
@@ -333,6 +363,7 @@ public class PharmacyManagementSystem {
                 return;
             }
             stock[idx] += qty;
+            saveData();
             refreshAll();
             info(names[idx] + " restocked. New stock = " + stock[idx]);
         } catch (NumberFormatException e) {
@@ -340,8 +371,7 @@ public class PharmacyManagementSystem {
         }
     }
 
-    // ================= Module: Medicine Search =================
-    // Numbers -> search by ID, text -> search by name (partial match). Linear search.
+    // ================= Search (linear): number -> by ID, text -> by name =================
     static void searchMedicine() {
         String key = searchField.getText().trim().toLowerCase();
         searchModel.setRowCount(0);
@@ -370,14 +400,11 @@ public class PharmacyManagementSystem {
         return -1;
     }
 
-    // ================= Module: Transaction History =================
+    // ================= Transaction history =================
     static String buildSummary() {
         String s = "";
         for (int i = 0; i < cartCount; i++) {
-            s += names[cartIdx[i]] + " x" + cartQty[i];
-            if (i < cartCount - 1) {
-                s += ", ";
-            }
+            s += names[cartIdx[i]] + " x" + cartQty[i] + (i < cartCount - 1 ? ", " : "");
         }
         return s;
     }
@@ -393,15 +420,9 @@ public class PharmacyManagementSystem {
         histCount++;
     }
 
-    // ================= Refresh screens from the arrays =================
+    // ================= Refresh screens =================
     static String statusOf(int qty) {
-        if (qty == 0) {
-            return "OUT OF STOCK";
-        } else if (qty <= LOW_STOCK_LIMIT) {
-            return "LOW STOCK";
-        } else {
-            return "Available";
-        }
+        return qty == 0 ? "OUT OF STOCK" : qty <= LOW_STOCK_LIMIT ? "LOW STOCK" : "Available";
     }
 
     static void refreshAll() {
@@ -467,7 +488,7 @@ public class PharmacyManagementSystem {
         historyArea.setText(sb.toString());
     }
 
-    // ================= Navigation (switch statement) =================
+    // ================= Navigation (switch) =================
     static void navigate(String cmd) {
         switch (cmd) {
             case "STOCK":
@@ -483,14 +504,14 @@ public class PharmacyManagementSystem {
                 refreshHistory();
                 break;
             case "EXIT":
-                int ok = JOptionPane.showConfirmDialog(frame, "Exit the Pharmacy System?", "Exit",
-                        JOptionPane.YES_NO_OPTION);
+                int ok = JOptionPane.showConfirmDialog(frame, "Exit the Pharmacy System?", "Exit", JOptionPane.YES_NO_OPTION);
                 if (ok == JOptionPane.YES_OPTION) {
+                    saveData();
                     System.exit(0);
                 }
                 return;
             default:
-                break;                       // REGISTER and SEARCH need no refresh
+                break;
         }
         cards.show(content, cmd);
     }
@@ -508,7 +529,6 @@ public class PharmacyManagementSystem {
         frame.setSize(1050, 660);
         frame.setLocationRelativeTo(null);
 
-        // Top banner
         JLabel banner = new JLabel("  PHARMACY BILLING & STOCK MANAGEMENT SYSTEM");
         banner.setFont(new Font("SansSerif", Font.BOLD, 22));
         banner.setForeground(Color.WHITE);
@@ -516,7 +536,6 @@ public class PharmacyManagementSystem {
         banner.setBackground(TEAL);
         banner.setPreferredSize(new Dimension(100, 56));
 
-        // Sidebar
         String[] labels = {"Medicines & Stock", "Register Medicine", "Billing", "Search Medicine",
                 "Restock Alerts", "Transaction History", "Exit"};
         String[] cmds = {"STOCK", "REGISTER", "BILLING", "SEARCH", "RESTOCK", "HISTORY", "EXIT"};
@@ -526,16 +545,14 @@ public class PharmacyManagementSystem {
         sidebar.setBorder(BorderFactory.createEmptyBorder(15, 10, 10, 10));
         for (int i = 0; i < labels.length; i++) {
             final String cmd = cmds[i];
-            JButton b = button(labels[i], NAVY);
+            JButton b = button(labels[i], NAVY, () -> navigate(cmd));
             b.setHorizontalAlignment(SwingConstants.LEFT);
             b.setMaximumSize(new Dimension(Integer.MAX_VALUE, 46));
             b.setAlignmentX(Component.LEFT_ALIGNMENT);
-            b.addActionListener(e -> navigate(cmd));
             sidebar.add(b);
             sidebar.add(Box.createVerticalStrut(6));
         }
 
-        // Pages
         content.add(buildStockPage(), "STOCK");
         content.add(buildRegisterPage(), "REGISTER");
         content.add(buildBillingPage(), "BILLING");
@@ -574,9 +591,8 @@ public class PharmacyManagementSystem {
         form.setMaximumSize(new Dimension(480, 130));
         form.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JButton add = button("Register Medicine", TEAL);
+        JButton add = button("Register Medicine", TEAL, PharmacyManagementSystem::registerMedicine);
         add.setAlignmentX(Component.LEFT_ALIGNMENT);
-        add.addActionListener(e -> registerMedicine());
 
         JLabel hint = new JLabel("If the medicine already exists, its stock is increased instead.");
         hint.setForeground(GREY);
@@ -605,48 +621,18 @@ public class PharmacyManagementSystem {
         totalLabel.setForeground(NAVY);
         cartTable = new JTable(cartModel);
 
-        JButton addBtn = button("Add to Bill", TEAL);
-        addBtn.addActionListener(e -> addSelected());
-        JButton quickBtn = button("Quick Add", TEAL);
-        quickBtn.addActionListener(e -> quickAdd());
-
-        JPanel row0 = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        row0.add(new JLabel("Customer name:"));
-        row0.add(custField);
-
-        JPanel row1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        row1.add(new JLabel("Medicine:"));
-        row1.add(medBox);
-        row1.add(new JLabel("Qty:"));
-        row1.add(qtySpinner);
-        row1.add(addBtn);
-
-        JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        row2.add(new JLabel("Quick add (ProductID:Qty, e.g.  1:5, 2:3, 3:4):"));
-        row2.add(quickField);
-        row2.add(quickBtn);
-
         JPanel top = new JPanel(new GridLayout(3, 1));
-        top.add(row0);
-        top.add(row1);
-        top.add(row2);
+        top.add(flow(FlowLayout.LEFT, 8, new JLabel("Customer name:"), custField));
+        top.add(flow(FlowLayout.LEFT, 8, new JLabel("Medicine:"), medBox, new JLabel("Qty:"), qtySpinner,
+                button("Add to Bill", TEAL, PharmacyManagementSystem::addSelected)));
+        top.add(flow(FlowLayout.LEFT, 8, new JLabel("Quick add (ProductID:Qty, e.g.  1:5, 2:3, 3:4):"), quickField,
+                button("Quick Add", TEAL, PharmacyManagementSystem::quickAdd)));
 
-        JButton removeBtn = button("Remove Selected", GREY);
-        removeBtn.addActionListener(e -> removeSelected());
-        JButton cancelBtn = button("Cancel Bill", RED);
-        cancelBtn.addActionListener(e -> cancelBill());
-        JButton generateBtn = button("Generate Bill", NAVY);
-        generateBtn.addActionListener(e -> generateBill());
-
-        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        left.add(removeBtn);
-        left.add(cancelBtn);
-        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 14, 4));
-        right.add(totalLabel);
-        right.add(generateBtn);
         JPanel bottom = new JPanel(new BorderLayout());
-        bottom.add(left, BorderLayout.WEST);
-        bottom.add(right, BorderLayout.EAST);
+        bottom.add(flow(FlowLayout.LEFT, 8, button("Remove Selected", GREY, PharmacyManagementSystem::removeSelected),
+                button("Cancel Bill", RED, PharmacyManagementSystem::cancelBill)), BorderLayout.WEST);
+        bottom.add(flow(FlowLayout.RIGHT, 14, totalLabel,
+                button("Generate Bill", NAVY, PharmacyManagementSystem::generateBill)), BorderLayout.EAST);
 
         JPanel body = new JPanel(new BorderLayout(0, 10));
         body.add(top, BorderLayout.NORTH);
@@ -657,17 +643,11 @@ public class PharmacyManagementSystem {
 
     static JPanel buildSearchPage() {
         searchField = new JTextField(22);
-        JButton go = button("Search", TEAL);
-        go.addActionListener(e -> searchMedicine());
         searchField.addActionListener(e -> searchMedicine());     // Enter key also searches
 
-        JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        bar.add(new JLabel("Medicine name or ID:"));
-        bar.add(searchField);
-        bar.add(go);
-
         JPanel body = new JPanel(new BorderLayout(0, 10));
-        body.add(bar, BorderLayout.NORTH);
+        body.add(flow(FlowLayout.LEFT, 8, new JLabel("Medicine name or ID:"), searchField,
+                button("Search", TEAL, PharmacyManagementSystem::searchMedicine)), BorderLayout.NORTH);
         body.add(tableIn(new JTable(searchModel)), BorderLayout.CENTER);
         return page("Search Medicine", body);
     }
@@ -675,16 +655,11 @@ public class PharmacyManagementSystem {
     static JPanel buildRestockPage() {
         restockTable = new JTable(restockModel);
         colorStatus(restockTable, 3);
-        JButton restockBtn = button("Restock Selected", TEAL);
-        restockBtn.addActionListener(e -> restockSelected());
-
-        JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        bar.add(restockBtn);
-        bar.add(new JLabel("Medicines with stock of " + LOW_STOCK_LIMIT + " or less are listed here."));
 
         JPanel body = new JPanel(new BorderLayout(0, 10));
         body.add(tableIn(restockTable), BorderLayout.CENTER);
-        body.add(bar, BorderLayout.SOUTH);
+        body.add(flow(FlowLayout.LEFT, 8, button("Restock Selected", TEAL, PharmacyManagementSystem::restockSelected),
+                new JLabel("Medicines with stock of " + LOW_STOCK_LIMIT + " or less are listed here.")), BorderLayout.SOUTH);
         return page("Restock Alerts", body);
     }
 
@@ -695,7 +670,15 @@ public class PharmacyManagementSystem {
         return page("Transaction History", new JScrollPane(historyArea));
     }
 
-    // ================= Small GUI helpers =================
+    // ================= GUI helpers =================
+    static JPanel flow(int align, int gap, Component... items) {
+        JPanel p = new JPanel(new FlowLayout(align, gap, 4));
+        for (Component c : items) {
+            p.add(c);
+        }
+        return p;
+    }
+
     static JPanel page(String title, JComponent body) {
         JLabel heading = new JLabel(title);
         heading.setFont(new Font("SansSerif", Font.BOLD, 24));
@@ -708,7 +691,7 @@ public class PharmacyManagementSystem {
         return p;
     }
 
-    static JButton button(String text, Color bg) {
+    static JButton button(String text, Color bg, Runnable action) {
         JButton b = new JButton(text);
         b.setBackground(bg);
         b.setForeground(Color.WHITE);
@@ -716,6 +699,7 @@ public class PharmacyManagementSystem {
         b.setFocusPainted(false);
         b.setFont(new Font("SansSerif", Font.BOLD, 14));
         b.setBorder(BorderFactory.createEmptyBorder(10, 16, 10, 16));
+        b.addActionListener(e -> action.run());
         return b;
     }
 
@@ -743,13 +727,7 @@ public class PharmacyManagementSystem {
             public Component getTableCellRendererComponent(JTable tb, Object v, boolean sel, boolean foc, int r, int c) {
                 Component comp = super.getTableCellRendererComponent(tb, v, sel, foc, r, c);
                 String s = String.valueOf(v);
-                if (s.startsWith("OUT")) {
-                    comp.setForeground(RED);
-                } else if (s.startsWith("LOW")) {
-                    comp.setForeground(new Color(230, 120, 0));
-                } else {
-                    comp.setForeground(new Color(0, 130, 60));
-                }
+                comp.setForeground(s.startsWith("OUT") ? RED : s.startsWith("LOW") ? new Color(230, 120, 0) : new Color(0, 130, 60));
                 return comp;
             }
         });

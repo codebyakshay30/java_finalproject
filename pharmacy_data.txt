@@ -1,0 +1,6 @@
+M	Paracetamol	20.0	50
+M	Amoxicillin	85.5	30
+M	Cetirizine	12.0	48
+M	Ibuprofen	45.0	40
+M	dolo	13.0	50
+M	aks	12.0	9
